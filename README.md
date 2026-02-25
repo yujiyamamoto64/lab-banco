@@ -1,24 +1,27 @@
 # Lab Banco
 
-Painel web de banco mock vivo para estudar comportamento de um sistema financeiro em producao:
+Painel web de banco mock vivo para estudar concorrencia e gargalos em sistema financeiro.
 
-- geracao continua de transferencias mock
-- persistencia real em PostgreSQL
-- deploy continuo em VPS
-- observacao de gargalos de performance e resiliencia
+Estado atual do laboratorio:
 
-A ideia deste projeto e evoluir gradualmente de um monolito simples para uma arquitetura distribuida (futuro: Saga).
+- PostgreSQL real para saldo e historico de transferencias
+- 2 instancias da aplicacao rodando em paralelo na VPS
+- cenario fixo de disputa: `Joao -> Maria`
+- monitor de consistencia com deteccao de anomalias
+- dashboard unico com transferencias + health + issues
+
+Objetivo: evoluir este ambiente ate arquitetura distribuida com Saga.
 
 ## Objetivo do projeto
 
 Construir um laboratorio pratico para:
 
-- simular operacoes de transferencia continuamente
-- medir efeitos de carga concorrente em banco de dados
-- testar mudancas de arquitetura com feedback rapido
-- evoluir para multiplos servicos (ex.: Redis, Kafka) e padroes de consistencia distribuidos (Saga)
+- simular operacoes financeiras concorrentes
+- reproduzir condicoes de corrida de forma controlada
+- observar inconsistencias em tempo real
+- preparar a evolucao para multiplos servicos (Redis, Kafka, Saga)
 
-## Stack atual
+## Stack
 
 - Java 17
 - Spring Boot (Web, Actuator, Data JPA)
@@ -26,64 +29,94 @@ Construir um laboratorio pratico para:
 - Docker / Docker Compose
 - GitHub Actions (build + push GHCR + deploy em VPS)
 
-## Como funciona hoje
+## Comportamento atual
 
-1. Um scheduler (`MockTransactionService`) executa a cada 5 segundos.
-2. O scheduler escolhe contas, gera valor mock e chama `TransferService.transfer(...)`.
-3. A transferencia e feita com `@Transactional`:
-   - debita conta origem
-   - credita conta destino
-   - grava evento em `transfer_transactions`
-4. O frontend em `static/index.html` consulta `/transfers` a cada 5 segundos e atualiza o painel em tempo real.
+1. Existem duas instancias do servico (`lab-banco` e `lab-banco-worker`).
+2. Ambas executam scheduler de mock transfer.
+3. Cada instancia roda 1 ciclo por minuto (`APP_MOCK_TRANSFER_FIXED_RATE_MS=60000` no compose da VPS).
+4. O fluxo principal e sempre:
+   - origem: `Joao`
+   - destino: `Maria`
+5. Se o saldo do Joao cai abaixo do minimo configurado, entra um fluxo tecnico de recarga:
+   - `Maria -> Joao` com categoria `REBALANCE`
+6. O dashboard mostra transferencias e saude de consistencia em uma unica pagina.
 
 ## Endpoints
 
 - `GET /` -> `Lab Banco <versao>`
-- `GET /version` -> versao atual (vem de um unico ponto no `pom.xml`)
-- `GET /transfers` -> ultimas 50 transferencias persistidas no banco
+- `GET /version` -> versao atual
+- `GET /transfers` -> ultimas 50 transferencias `MOCK`
+- `GET /transfers/all` -> ultimas 50 transferencias de todas as categorias (`MOCK` + `REBALANCE`)
 - `GET /transacoes` -> alias de `/transfers`
-- `GET /index.html` -> dashboard em tempo real
+- `GET /consistency` -> snapshot de saude de consistencia
+- `GET /consistency/issues` -> lista de issues registradas
+- `GET /index.html` -> dashboard unico
 
-## Fonte unica de versao (v2, v3, ...)
+## Categorias de transferencia
 
-Edite apenas:
+- `MOCK`: transferencia principal de teste (`Joao -> Maria`)
+- `REBALANCE`: transferencia tecnica para manter liquidez do Joao e nao parar o teste
+
+## Verificacoes de consistencia
+
+Servico: `ConsistencyMonitorService` (agendado).
+
+Checks atuais:
+
+- saldo negativo
+- self-transfer (origem = destino)
+- valor de transferencia nao positivo
+- transacao com referencia para conta inexistente
+- divergencia saldo x historico para Joao/Maria
+- drift de saldo total Joao+Maria
+
+## Fonte unica de versao
+
+Edite somente:
 
 - `app/pom.xml` -> propriedade `lab-banco.version.label`
 
-Essa propriedade alimenta:
+Essa propriedade alimenta `app.version` e os endpoints `/` e `/version`.
 
-- `app/src/main/resources/application.yml` (`app.version`)
-- `HelloController` (`/` e `/version`)
+## Configuracoes relevantes
+
+Arquivo: `app/src/main/resources/application.yml`
+
+- `app.mock-transfer.fixed-rate-ms`
+- `app.mock-transfer.initial-delay-ms`
+- `app.mock-transfer.minimum-origin-balance`
+- `app.mock-transfer.rebalance-target-balance`
+- `app.consistency-check.fixed-rate-ms`
+- `app.consistency-check.initial-delay-ms`
+
+No deploy da VPS, o `docker-compose.yml` sobrescreve o ritmo do mock transfer para 60s por instancia.
 
 ## Rodar localmente
 
-Opcao 1 (desenvolvimento local com codigo atual):
+Opcao 1 (app local + banco em container):
 
-1. Subir somente o banco:
-   - `docker compose up -d db`
-2. Rodar a aplicacao Spring Boot:
-   - Windows: `.\app\mvnw.cmd -f .\app\pom.xml spring-boot:run`
-3. Acessar:
-   - `http://localhost:8080/index.html`
+1. `docker compose up -d db`
+2. Windows: `.\app\mvnw.cmd -f .\app\pom.xml spring-boot:run`
+3. Abrir `http://localhost:8080/index.html`
 
-Opcao 2 (stack por imagem publicada):
+Opcao 2 (stack por imagem):
 
 1. `docker compose up -d`
-2. Acessar:
-   - `http://localhost/index.html`
+2. Abrir `http://localhost/index.html`
 
 ## Deploy automatico (VPS)
 
 Workflow: `.github/workflows/deploy.yml`
 
-No push para `master`, o pipeline faz:
+No push para `master`, o pipeline:
 
-1. build da imagem
-2. push para GHCR
-3. copia e atualiza `docker-compose.yml` na VPS (`overwrite: true`)
-4. executa `docker compose pull` e `docker compose up -d --remove-orphans`
+1. builda imagem
+2. publica no GHCR
+3. atualiza `docker-compose.yml` na VPS (com `overwrite: true`)
+4. roda `docker compose pull`
+5. roda `docker compose up -d --remove-orphans`
 
-Isso garante que mudancas futuras em `docker-compose.yml` (novos servicos como Redis/Kafka) sejam aplicadas automaticamente no servidor.
+Isso garante que novas definicoes de servicos no compose sejam aplicadas automaticamente.
 
 ## Estrutura principal
 
@@ -94,11 +127,14 @@ lab-banco/
 |   |-- src/main/java/com/lab/banco/
 |   |   |-- Account.java
 |   |   |-- TransferTransaction.java
+|   |   |-- TransferCategory.java
 |   |   |-- AccountRepository.java
 |   |   |-- TransferTransactionRepository.java
 |   |   |-- TransferService.java
 |   |   |-- MockTransactionService.java
 |   |   |-- TransactionController.java
+|   |   |-- ConsistencyMonitorService.java
+|   |   |-- ConsistencyController.java
 |   |   `-- HelloController.java
 |   `-- src/main/resources/
 |       |-- application.yml
@@ -108,33 +144,16 @@ lab-banco/
 `-- .github/workflows/deploy.yml
 ```
 
-## Roadmap (evolucao para Saga)
+## Observacoes
 
-1. Persistencia confiavel
-   - adicionar volume para PostgreSQL no `docker-compose.yml`
-   - incluir migrations versionadas (Flyway/Liquibase)
+- `ddl-auto: update` e util para laboratorio, mas nao recomendado para ambiente critico.
+- O Postgres ainda sem volume dedicado no compose pode perder dados ao recriar container.
+- Credenciais atuais sao de laboratorio (`lab/lab123`); para ambiente publico, use segredos e hardening.
 
-2. Observabilidade forte
-   - expor metricas de negocio e infraestrutura
-   - integrar Prometheus + Grafana
-   - padronizar logs estruturados e correlation id
+## Proximos passos sugeridos
 
-3. Desacoplamento de servicos
-   - separar dominio de contas e dominio de transacoes
-   - introduzir broker (Kafka/RabbitMQ)
-   - implementar padrao Outbox
-
-4. Saga
-   - compensacoes para falhas parciais
-   - idempotencia por comando/evento
-   - reprocessamento seguro de eventos
-
-5. Testes de carga e caos
-   - cenarios de throughput alto
-   - latencia de banco/rede
-   - indisponibilidade parcial de servicos
-
-## Observacoes importantes
-
-- Hoje o `docker-compose.yml` nao define volume do Postgres. Se o container for removido, os dados podem ser perdidos.
-- Credenciais atuais sao de laboratorio (`lab/lab123`). Para ambiente exposto, use segredos e politicas de seguranca.
+1. Adicionar volume persistente para PostgreSQL.
+2. Adicionar migrations (Flyway/Liquibase).
+3. Expor metricas com Prometheus + Grafana.
+4. Incluir lock otimista/pessimista para aprofundar estudo de concorrencia.
+5. Evoluir para arquitetura orientada a eventos com Saga.

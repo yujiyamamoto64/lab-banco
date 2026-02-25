@@ -1,52 +1,48 @@
 package com.lab.banco;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Random;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 @Service
 public class MockTransactionService {
 
+    private static final String ORIGIN_ACCOUNT_NAME = "Joao";
+    private static final String DESTINATION_ACCOUNT_NAME = "Maria";
     private static final int MAX_TRANSFER_AMOUNT = 1000;
     private static final int MIN_TRANSFER_AMOUNT = 1;
-    private static final int MIN_ACCOUNT_COUNT = 2;
     private static final long INITIAL_SEED_BALANCE = 5000L;
     private static final Logger LOG = LoggerFactory.getLogger(MockTransactionService.class);
 
     private final Random random = new Random();
     private final TransferService transferService;
     private final AccountRepository accountRepository;
+    private final BigDecimal minimumOriginBalance;
+    private final BigDecimal rebalanceTargetBalance;
 
-    private final List<String> seedNames = List.of(
-            "Maria", "Joao", "Pedro", "Ana", "Carlos", "Bruno", "Fernanda");
-
-    public MockTransactionService(TransferService transferService, AccountRepository accountRepository) {
+    public MockTransactionService(
+            TransferService transferService,
+            AccountRepository accountRepository,
+            @Value("${app.mock-transfer.minimum-origin-balance:1000}") BigDecimal minimumOriginBalance,
+            @Value("${app.mock-transfer.rebalance-target-balance:5000}") BigDecimal rebalanceTargetBalance) {
         this.transferService = transferService;
         this.accountRepository = accountRepository;
+        this.minimumOriginBalance = minimumOriginBalance;
+        this.rebalanceTargetBalance = rebalanceTargetBalance;
     }
 
-    @Scheduled(fixedRate = 5000, initialDelay = 10000)
+    @Scheduled(fixedRateString = "${app.mock-transfer.fixed-rate-ms:5000}",
+            initialDelayString = "${app.mock-transfer.initial-delay-ms:10000}")
     public void generateMockTransfer() {
         try {
-            ensureSeedAccounts();
+            Account origin = ensureAccount(ORIGIN_ACCOUNT_NAME);
+            Account destination = ensureAccount(DESTINATION_ACCOUNT_NAME);
 
-            List<Account> accounts = accountRepository.findAll();
-            if (accounts.size() < MIN_ACCOUNT_COUNT) {
-                return;
-            }
-
-            Account origin = chooseOriginAccount(accounts);
-            if (origin == null) {
-                return;
-            }
-
-            Account destination = chooseDestinationAccount(accounts, origin.getId());
-            if (destination == null) {
+            if (tryRebalanceIfNeeded(origin, destination)) {
                 return;
             }
 
@@ -55,79 +51,55 @@ public class MockTransactionService {
                     .intValue();
 
             if (maxAmount < MIN_TRANSFER_AMOUNT) {
+                LOG.info("Skipping mock transfer because {} has insufficient balance: {}",
+                        origin.getName(), origin.getBalance());
                 return;
             }
 
             BigDecimal amount = BigDecimal.valueOf(random.nextInt(maxAmount) + MIN_TRANSFER_AMOUNT);
-            transferService.transfer(origin.getId(), destination.getId(), amount);
-            LOG.info("Mock transfer persisted: {} -> {} amount {}", origin.getId(), destination.getId(), amount);
+            transferService.transfer(origin.getId(), destination.getId(), amount, TransferCategory.MOCK);
+            LOG.info("Mock transfer persisted: {}({}) -> {}({}) amount {}",
+                    origin.getName(), origin.getId(), destination.getName(), destination.getId(), amount);
         } catch (Exception ex) {
             LOG.warn("Failed to generate mock transfer", ex);
         }
     }
 
-    private void ensureSeedAccounts() {
-        if (accountRepository.count() >= MIN_ACCOUNT_COUNT) {
-            return;
+    private boolean tryRebalanceIfNeeded(Account origin, Account destination) {
+        if (origin.getBalance().compareTo(minimumOriginBalance) >= 0) {
+            return false;
         }
 
-        List<Account> existingAccounts = accountRepository.findAll();
-        List<Account> accountsToCreate = new ArrayList<>();
-
-        for (String name : seedNames) {
-            if (existingAccounts.size() + accountsToCreate.size() >= MIN_ACCOUNT_COUNT) {
-                break;
-            }
-
-            boolean alreadyExists = false;
-            for (Account existing : existingAccounts) {
-                if (name.equalsIgnoreCase(existing.getName())) {
-                    alreadyExists = true;
-                    break;
-                }
-            }
-
-            if (!alreadyExists) {
-                Account account = new Account();
-                account.setName(name);
-                account.setBalance(BigDecimal.valueOf(INITIAL_SEED_BALANCE));
-                accountsToCreate.add(account);
-            }
+        BigDecimal desiredTopUp = rebalanceTargetBalance.subtract(origin.getBalance());
+        if (desiredTopUp.compareTo(BigDecimal.ZERO) <= 0) {
+            return false;
         }
 
-        if (!accountsToCreate.isEmpty()) {
-            accountRepository.saveAll(accountsToCreate);
+        BigDecimal topUpAmount = desiredTopUp.min(destination.getBalance());
+        if (topUpAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            LOG.warn("Cannot rebalance {} because {} has insufficient balance. originBalance={}, destinationBalance={}",
+                    origin.getName(), destination.getName(), origin.getBalance(), destination.getBalance());
+            return false;
         }
+
+        transferService.transfer(
+                destination.getId(),
+                origin.getId(),
+                topUpAmount,
+                TransferCategory.REBALANCE);
+
+        LOG.info("Rebalance transfer persisted: {}({}) -> {}({}) amount {}",
+                destination.getName(), destination.getId(), origin.getName(), origin.getId(), topUpAmount);
+        return true;
     }
 
-    private Account chooseOriginAccount(List<Account> accounts) {
-        List<Account> candidates = new ArrayList<>();
-        for (Account account : accounts) {
-            if (account.getBalance() != null && account.getBalance().compareTo(BigDecimal.ONE) >= 0) {
-                candidates.add(account);
-            }
-        }
-
-        if (candidates.isEmpty()) {
-            return null;
-        }
-
-        return candidates.get(random.nextInt(candidates.size()));
+    private Account ensureAccount(String accountName) {
+        return accountRepository.findByNameIgnoreCase(accountName)
+                .orElseGet(() -> {
+                    Account account = new Account();
+                    account.setName(accountName);
+                    account.setBalance(BigDecimal.valueOf(INITIAL_SEED_BALANCE));
+                    return accountRepository.save(account);
+                });
     }
-
-    private Account chooseDestinationAccount(List<Account> accounts, Long originId) {
-        List<Account> candidates = new ArrayList<>();
-        for (Account account : accounts) {
-            if (!account.getId().equals(originId)) {
-                candidates.add(account);
-            }
-        }
-
-        if (candidates.isEmpty()) {
-            return null;
-        }
-
-        return candidates.get(random.nextInt(candidates.size()));
-    }
-
 }

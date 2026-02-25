@@ -30,7 +30,18 @@ public class TransactionController {
 
     @GetMapping("/transfers")
     public List<TransferResponse> listTransfers() {
+        List<TransferTransaction> transfers =
+                transferTransactionRepository.findTop50ByCategoryOrderByOccurredAtDesc(TransferCategory.MOCK);
+        return mapTransfers(transfers);
+    }
+
+    @GetMapping("/transfers/all")
+    public List<TransferResponse> listAllTransfers() {
         List<TransferTransaction> transfers = transferTransactionRepository.findTop50ByOrderByOccurredAtDesc();
+        return mapTransfers(transfers);
+    }
+
+    private List<TransferResponse> mapTransfers(List<TransferTransaction> transfers) {
         if (transfers.isEmpty()) {
             return List.of();
         }
@@ -53,7 +64,8 @@ public class TransactionController {
                         transfer.getDestinationAccountId(),
                         accountNamesById.getOrDefault(transfer.getDestinationAccountId(), "Unknown"),
                         transfer.getAmount(),
-                        transfer.getOccurredAt()))
+                        transfer.getOccurredAt(),
+                        transfer.getCategory() == null ? TransferCategory.MOCK : transfer.getCategory()))
                 .toList();
     }
 
@@ -64,6 +76,7 @@ public class TransactionController {
             Long destinationAccountId,
             String destinationAccountName,
             BigDecimal amount,
-            LocalDateTime occurredAt) {
+            LocalDateTime occurredAt,
+            TransferCategory category) {
     }
 }

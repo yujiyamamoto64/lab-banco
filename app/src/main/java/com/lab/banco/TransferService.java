@@ -20,6 +20,15 @@ public class TransferService {
 
     @Transactional
     public void transfer(Long originAccountId, Long destinationAccountId, BigDecimal amount) {
+        transfer(originAccountId, destinationAccountId, amount, TransferCategory.MOCK);
+    }
+
+    @Transactional
+    public void transfer(
+            Long originAccountId,
+            Long destinationAccountId,
+            BigDecimal amount,
+            TransferCategory category) {
         validateTransferInput(originAccountId, destinationAccountId, amount);
 
         Account origin = accountRepository.findById(originAccountId)
@@ -43,6 +52,7 @@ public class TransferService {
         transaction.setDestinationAccountId(destinationAccountId);
         transaction.setAmount(amount);
         transaction.setOccurredAt(LocalDateTime.now());
+        transaction.setCategory(category == null ? TransferCategory.MOCK : category);
 
         transferTransactionRepository.save(transaction);
     }

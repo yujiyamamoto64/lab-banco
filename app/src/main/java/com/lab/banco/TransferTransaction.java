@@ -4,6 +4,8 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -28,6 +30,10 @@ public class TransferTransaction {
 
     @Column(nullable = false)
     private LocalDateTime occurredAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column
+    private TransferCategory category;
 
     public Long getId() {
         return id;
@@ -67,5 +73,13 @@ public class TransferTransaction {
 
     public void setOccurredAt(LocalDateTime occurredAt) {
         this.occurredAt = occurredAt;
+    }
+
+    public TransferCategory getCategory() {
+        return category;
+    }
+
+    public void setCategory(TransferCategory category) {
+        this.category = category;
     }
 }

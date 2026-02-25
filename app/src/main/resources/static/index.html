@@ -3,32 +3,111 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lab Banco - Transfers Dashboard</title>
+    <title>Lab Banco - Realtime Dashboard</title>
     <style>
         body {
             font-family: Arial, sans-serif;
             margin: 24px;
+            color: #111;
+        }
+
+        h1, h2 {
+            margin-bottom: 8px;
         }
 
         #status {
             color: #555;
-            margin-bottom: 12px;
+            margin-bottom: 20px;
+        }
+
+        .panel {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 16px;
+            background: #fff;
+        }
+
+        .healthy {
+            color: #0a7d22;
+            font-weight: bold;
+        }
+
+        .unhealthy {
+            color: #b00020;
+            font-weight: bold;
+        }
+
+        .issue {
+            border-top: 1px solid #eee;
+            padding: 8px 0;
+        }
+
+        .issue-code {
+            font-weight: bold;
+        }
+
+        .severity-critical {
+            color: #b00020;
+        }
+
+        .severity-high {
+            color: #8a3b00;
+        }
+
+        .severity-medium {
+            color: #3a4a00;
+        }
+
+        .severity-low {
+            color: #145a75;
         }
 
         .transfer {
-            border-bottom: 1px solid #ddd;
+            border-top: 1px solid #eee;
             padding: 8px 0;
+        }
+
+        .category {
+            display: inline-block;
+            margin-left: 8px;
+            padding: 1px 6px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: bold;
+            color: #fff;
+            background: #555;
+        }
+
+        .category-mock {
+            background: #0a7d22;
+        }
+
+        .category-rebalance {
+            background: #8a3b00;
         }
     </style>
 </head>
 <body>
 <h1>Realtime Transfers Dashboard</h1>
 <div id="status">Loading...</div>
-<div id="log"></div>
+
+<div class="panel">
+    <h2>Consistency Monitor</h2>
+    <div id="consistencySummary">Loading consistency status...</div>
+    <div id="consistencyIssues"></div>
+</div>
+
+<div class="panel">
+    <h2>Recent Transfers (All Types)</h2>
+    <div id="transfers"></div>
+</div>
 
 <script>
-    const logElement = document.getElementById('log');
     const statusElement = document.getElementById('status');
+    const consistencySummaryElement = document.getElementById('consistencySummary');
+    const consistencyIssuesElement = document.getElementById('consistencyIssues');
+    const transfersElement = document.getElementById('transfers');
 
     function escapeHtml(text) {
         return String(text)
@@ -61,36 +140,92 @@
         return numberValue.toFixed(2);
     }
 
-    async function loadTransfers() {
-        try {
-            const response = await fetch('/transfers', { cache: 'no-store' });
-            if (!response.ok) {
-                throw new Error('HTTP ' + response.status);
-            }
+    function renderTransfers(data) {
+        if (!Array.isArray(data) || data.length === 0) {
+            transfersElement.innerHTML = '<p>No transfers found yet.</p>';
+            return;
+        }
 
-            const data = await response.json();
+        transfersElement.innerHTML = data.map(transfer => `
+            <div class="transfer">
+                <strong>[${escapeHtml(formatDateTime(transfer.occurredAt))}]</strong>
+                <span class="category category-${escapeHtml(String(transfer.category || 'mock').toLowerCase())}">
+                    ${escapeHtml(transfer.category || 'MOCK')}
+                </span>
+                ${escapeHtml(transfer.originAccountName)} (ID ${escapeHtml(transfer.originAccountId)})
+                transferred R$ ${escapeHtml(formatAmount(transfer.amount))}
+                to ${escapeHtml(transfer.destinationAccountName)} (ID ${escapeHtml(transfer.destinationAccountId)})
+            </div>
+        `).join('');
+    }
 
-            if (!Array.isArray(data) || data.length === 0) {
-                logElement.innerHTML = '<p>No transfers found yet.</p>';
-            } else {
-                logElement.innerHTML = data.map(transfer => `
-                    <div class="transfer">
-                        <strong>[${escapeHtml(formatDateTime(transfer.occurredAt))}]</strong>
-                        ${escapeHtml(transfer.originAccountName)} (ID ${escapeHtml(transfer.originAccountId)})
-                        transferred R$ ${escapeHtml(formatAmount(transfer.amount))}
-                        to ${escapeHtml(transfer.destinationAccountName)} (ID ${escapeHtml(transfer.destinationAccountId)})
+    function renderConsistency(snapshot) {
+        if (!snapshot || typeof snapshot !== 'object') {
+            consistencySummaryElement.innerHTML = '<p>Consistency data unavailable.</p>';
+            consistencyIssuesElement.innerHTML = '';
+            return;
+        }
+
+        const healthClass = snapshot.healthy ? 'healthy' : 'unhealthy';
+        const healthLabel = snapshot.healthy ? 'HEALTHY' : 'UNHEALTHY';
+
+        consistencySummaryElement.innerHTML = `
+            <p>Status: <span class="${healthClass}">${healthLabel}</span></p>
+            <p>Last checked at: ${escapeHtml(formatDateTime(snapshot.lastCheckedAt))}</p>
+            <p>Issues detected in last run: ${escapeHtml(snapshot.issuesDetectedInLastRun)}</p>
+        `;
+
+        const issues = Array.isArray(snapshot.recentIssues) ? snapshot.recentIssues.slice(0, 20) : [];
+        if (issues.length === 0) {
+            consistencyIssuesElement.innerHTML = '<p>No consistency issues recorded.</p>';
+            return;
+        }
+
+        consistencyIssuesElement.innerHTML = issues.map(issue => {
+            const severityClass = `severity-${String(issue.severity || '').toLowerCase()}`;
+            return `
+                <div class="issue">
+                    <div>
+                        <span class="issue-code">${escapeHtml(issue.code)}</span>
+                        <span class="${severityClass}">(${escapeHtml(issue.severity)})</span>
+                        at ${escapeHtml(formatDateTime(issue.detectedAt))}
                     </div>
-                `).join('');
+                    <div>${escapeHtml(issue.message)}</div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async function refreshDashboard() {
+        try {
+            const [transfersResponse, consistencyResponse] = await Promise.all([
+                fetch('/transfers/all', { cache: 'no-store' }),
+                fetch('/consistency', { cache: 'no-store' })
+            ]);
+
+            if (!transfersResponse.ok) {
+                throw new Error('Transfers endpoint HTTP ' + transfersResponse.status);
             }
 
+            if (!consistencyResponse.ok) {
+                throw new Error('Consistency endpoint HTTP ' + consistencyResponse.status);
+            }
+
+            const [transfersData, consistencyData] = await Promise.all([
+                transfersResponse.json(),
+                consistencyResponse.json()
+            ]);
+
+            renderTransfers(transfersData);
+            renderConsistency(consistencyData);
             statusElement.textContent = 'Updated at ' + new Date().toLocaleTimeString();
         } catch (error) {
-            statusElement.textContent = 'Failed to load transfers: ' + error.message;
+            statusElement.textContent = 'Failed to refresh dashboard: ' + error.message;
         }
     }
 
-    setInterval(loadTransfers, 5000);
-    loadTransfers();
+    setInterval(refreshDashboard, 5000);
+    refreshDashboard();
 </script>
 </body>
 </html>

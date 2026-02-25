@@ -1,5 +1,13 @@
 app:
   version: "@lab-banco.version.label@"
+  mock-transfer:
+    fixed-rate-ms: 60000
+    initial-delay-ms: 10000
+    minimum-origin-balance: 1000
+    rebalance-target-balance: 5000
+  consistency-check:
+    fixed-rate-ms: 3000
+    initial-delay-ms: 15000
 
 spring:
   application:

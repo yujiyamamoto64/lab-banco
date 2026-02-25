@@ -14,8 +14,7 @@ public class MockTransactionService {
     private final Random random = new Random();
 
     private final List<String> nomes = List.of(
-            "Maria", "João", "Pedro", "Ana", "Carlos", "Bruno", "Fernanda"
-    );
+            "Maria", "João", "Pedro", "Ana", "Carlos", "Bruno", "Fernanda");
 
     @Scheduled(fixedRate = 5000)
     public void gerarTransacao() {
@@ -28,8 +27,7 @@ public class MockTransactionService {
                 LocalTime.now().withNano(0),
                 origem,
                 valor,
-                destino
-        );
+                destino);
 
         transactions.add(0, mensagem);
 
@@ -43,4 +41,5 @@ public class MockTransactionService {
     public List<String> getTransactions() {
         return transactions;
     }
+
 }

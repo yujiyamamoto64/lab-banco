@@ -1,0 +1,17 @@
+app:
+  version: "@lab-banco.version.label@"
+
+spring:
+  application:
+    name: lab-banco-app
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/labbanco}
+    username: ${SPRING_DATASOURCE_USERNAME:lab}
+    password: ${SPRING_DATASOURCE_PASSWORD:lab123}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+    show-sql: true

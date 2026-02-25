@@ -26,6 +26,24 @@ jobs:
       - name: Push image
         run: docker push ghcr.io/yujiyamamoto64/lab-banco:latest
 
+      - name: Ensure deploy directory on VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 187.77.60.52
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: mkdir -p /opt/lab-banco
+
+      - name: Sync compose file to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: 187.77.60.52
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: docker-compose.yml
+          target: /opt/lab-banco
+          overwrite: true
+
       - name: Deploy to VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -35,4 +53,4 @@ jobs:
           script: |
             cd /opt/lab-banco
             docker compose pull
-            docker compose up -d
+            docker compose up -d --remove-orphans

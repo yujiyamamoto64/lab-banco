@@ -1,24 +1,96 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Lab Banco - Dashboard</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lab Banco - Transfers Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 24px;
+        }
+
+        #status {
+            color: #555;
+            margin-bottom: 12px;
+        }
+
+        .transfer {
+            border-bottom: 1px solid #ddd;
+            padding: 8px 0;
+        }
+    </style>
 </head>
 <body>
-<h1>Dashboard de Transações</h1>
+<h1>Realtime Transfers Dashboard</h1>
+<div id="status">Loading...</div>
 <div id="log"></div>
 
 <script>
-    async function carregar() {
-        const response = await fetch('/transacoes');
-        const data = await response.json();
+    const logElement = document.getElementById('log');
+    const statusElement = document.getElementById('status');
 
-        const div = document.getElementById('log');
-        div.innerHTML = data.map(t => `<p>${t}</p>`).join('');
+    function escapeHtml(text) {
+        return String(text)
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#039;');
     }
 
-    setInterval(carregar, 5000);
-    carregar();
-</script>
+    function formatDateTime(rawValue) {
+        if (!rawValue) {
+            return '-';
+        }
 
+        const date = new Date(rawValue);
+        if (Number.isNaN(date.getTime())) {
+            return rawValue;
+        }
+
+        return date.toLocaleString();
+    }
+
+    function formatAmount(rawAmount) {
+        const numberValue = Number(rawAmount);
+        if (Number.isNaN(numberValue)) {
+            return '0.00';
+        }
+
+        return numberValue.toFixed(2);
+    }
+
+    async function loadTransfers() {
+        try {
+            const response = await fetch('/transfers', { cache: 'no-store' });
+            if (!response.ok) {
+                throw new Error('HTTP ' + response.status);
+            }
+
+            const data = await response.json();
+
+            if (!Array.isArray(data) || data.length === 0) {
+                logElement.innerHTML = '<p>No transfers found yet.</p>';
+            } else {
+                logElement.innerHTML = data.map(transfer => `
+                    <div class="transfer">
+                        <strong>[${escapeHtml(formatDateTime(transfer.occurredAt))}]</strong>
+                        ${escapeHtml(transfer.originAccountName)} (ID ${escapeHtml(transfer.originAccountId)})
+                        transferred R$ ${escapeHtml(formatAmount(transfer.amount))}
+                        to ${escapeHtml(transfer.destinationAccountName)} (ID ${escapeHtml(transfer.destinationAccountId)})
+                    </div>
+                `).join('');
+            }
+
+            statusElement.textContent = 'Updated at ' + new Date().toLocaleTimeString();
+        } catch (error) {
+            statusElement.textContent = 'Failed to load transfers: ' + error.message;
+        }
+    }
+
+    setInterval(loadTransfers, 5000);
+    loadTransfers();
+</script>
 </body>
 </html>

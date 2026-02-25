@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Lab Banco - Dashboard</title>
+</head>
+<body>
+<h1>Dashboard de Transações</h1>
+<div id="log"></div>
+
+<script>
+    async function carregar() {
+        const response = await fetch('/transacoes');
+        const data = await response.json();
+
+        const div = document.getElementById('log');
+        div.innerHTML = data.map(t => `<p>${t}</p>`).join('');
+    }
+
+    setInterval(carregar, 5000);
+    carregar();
+</script>
+
+</body>
+</html>

@@ -8,6 +8,10 @@ app:
   consistency-check:
     fixed-rate-ms: 3000
     initial-delay-ms: 15000
+  chaos:
+    enabled: false
+    sleep-before-update-ms: 0
+    fail-after-origin-update-probability: 0.0
 
 spring:
   application:

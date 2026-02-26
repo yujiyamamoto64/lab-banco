@@ -17,6 +17,19 @@ services:
       SPRING_DATASOURCE_PASSWORD: lab123
       APP_MOCK_TRANSFER_FIXED_RATE_MS: 60000
       APP_MOCK_TRANSFER_INITIAL_DELAY_MS: 10000
+      APP_CHAOS_ENABLED: "true"
+      APP_CHAOS_SLEEP_BEFORE_UPDATE_MS: 1500
+      APP_CHAOS_FAIL_AFTER_ORIGIN_UPDATE_PROBABILITY: 0.30
+    depends_on:
+      - db
+    restart: always
+
+  adminer:
+    image: adminer
+    ports:
+      - "8081:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: db
     depends_on:
       - db
     restart: always
@@ -29,6 +42,9 @@ services:
       SPRING_DATASOURCE_PASSWORD: lab123
       APP_MOCK_TRANSFER_FIXED_RATE_MS: 60000
       APP_MOCK_TRANSFER_INITIAL_DELAY_MS: 10000
+      APP_CHAOS_ENABLED: "true"
+      APP_CHAOS_SLEEP_BEFORE_UPDATE_MS: 1500
+      APP_CHAOS_FAIL_AFTER_ORIGIN_UPDATE_PROBABILITY: 0.30
     depends_on:
       - db
     restart: always
